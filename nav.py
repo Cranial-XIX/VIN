@@ -224,33 +224,20 @@ class Nav(nn.Module):
 #
 ###############################################################################
 
-def plot_trajectory(maze, trajectory, goal, iter=-1):
-    rgb = np.zeros((*maze.shape, 3))
-    rgb[maze == 0] = np.array([0,0,0]) # black wall
-    rgb[maze == 1] = np.array([1,1,1]) # white path
+def plot_trajectory(m, q, g, name):
+    rgb = np.zeros((*m.shape, 3))
+    rgb[q == 0] = np.array([0, 1, 0])   # R - green
+    rgb[q == 1] = np.array([1, 0, 1])   # D - purple
+    rgb[q == 2] = np.array([1, 1, 0])   # L - yellow
+    rgb[q == 3] = np.array([0, 0, 1])   # U - blue
+    rgb[m == W] = np.array([0,0,0])     # black wall
+    rgb[g[0], g[1]] = np.array([1,0,0]) # red goal if not
 
-    step = 0.5 / MAX_N_STEPS / 2
-    base = 0.3
-    prev_pos = trajectory[0]
-    for i, pos in enumerate(trajectory[1:]):
-        middle = (prev_pos+pos) // 2
-        rgb[middle[0], middle[1]] = np.array([0,0,base])
-        base += step
-        rgb[pos[0], pos[1]] = np.array([0,0,base])
-        base += step
-        prev_pos = pos
-
-    start = trajectory[0]
-    rgb[start[0], start[1]] = np.array([0,1,0]) # green start
-    if (trajectory[-1] == goal).all():
-        rgb[goal[0], goal[1]] = np.array([1,1,0]) # yellow goal if reached
-    else:
-        rgb[goal[0], goal[1]] = np.array([1,0,0]) # red goal if not
     plt.imshow(rgb)
-    plt.savefig(IMG_FOLDER+"traj_%d.png" % iter)
+    plt.savefig(IMG_FOLDER+name+".png")
     plt.close()
 
-def evaluate(loader, mazes, nav):
+def evaluate(loader, mazes, nav, epoch=-1):
     nav.eval()
     with torch.no_grad():
         loss = 0
@@ -259,7 +246,8 @@ def evaluate(loader, mazes, nav):
         loss /= len(loader)
 
         sr = 0
-        for maze in mazes:
+        rand = np.random.randint(len(mazes))
+        for i, maze in enumerate(mazes):
             empty = np.stack(np.where(maze==E)).transpose()
             index = np.random.choice(empty.shape[0], 2, False)
             start, goal = empty[index]
@@ -283,6 +271,9 @@ def evaluate(loader, mazes, nav):
                     break
             if done:
                 sr += 1
+            if i == rand:
+                plot_trajectory(m, pi, goal, str(epoch))
+
         sr /= len(mazes)
 
     nav.train()
@@ -324,7 +315,7 @@ def is_valid_step(maze, from_pos, to_pos):
         return False
     return True
     
-def train(n_epochs=10000, pretrained_path=""):
+def train(n_epochs=1000, pretrained_path=""):
     d = np.load("data.npy", allow_pickle=True)[()]
     trainset, testset = Dataset(d['train']), Dataset(d['test'])
     params = {'batch_size': 64, 'shuffle':True, 'num_workers':6}
@@ -355,9 +346,10 @@ def train(n_epochs=10000, pretrained_path=""):
         stats['tr_i'].append(epoch)
         stats['tr_l'].append(loss)
 
-        print("[INFO] loss %s" % loss)
+        print("[INFO] epi %s train loss %s" % (epoch, loss))
         if epoch % 5 == 0:
-            l, sr = evaluate(test_loader, d['test']['mazes'], nav)
+            l, sr = evaluate(test_loader, d['test']['mazes'], nav, epoch)
+            print("[INFO] test loss %s success rate %s" % (l, sr))
             stats['te_i'].append(epoch)
             stats['te_l'].append(l)
             stats['te_sr'].append(sr)
